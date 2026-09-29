@@ -4,7 +4,6 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 
@@ -41,68 +40,50 @@ impl ToolCommand {
             .with_context(|| format!("cannot run {}", self.program.display()))
     }
 
-    /// Runs with stdout and stderr written to `log`, and also echoed to gdship's own
-    /// streams when `stream` is set.
+    /// Runs with stdout and stderr written to `log`, and also echoed to gdship's stdout
+    /// when `stream` is set. Both streams share one pipe, so the log keeps the order
+    /// the tool wrote them in and an error stays next to the output around it.
     pub(crate) fn run_logged(&self, log: &Path, stream: bool) -> Result<ExitStatus> {
-        let file = File::create(log).with_context(|| format!("cannot create {}", log.display()))?;
-        let file = Arc::new(Mutex::new(file));
-        let mut child = self
-            .command()
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| format!("cannot run {}", self.program.display()))?;
-        let stdout = child.stdout.take().expect("stdout is piped");
-        let stderr = child.stderr.take().expect("stderr is piped");
-        let copiers = [
-            copy_to_log(
-                stdout,
-                Arc::clone(&file),
-                stream.then(|| Box::new(io::stdout()) as _),
-            ),
-            copy_to_log(
-                stderr,
-                Arc::clone(&file),
-                stream.then(|| Box::new(io::stderr()) as _),
-            ),
-        ];
+        let mut file =
+            File::create(log).with_context(|| format!("cannot create {}", log.display()))?;
+        let (mut reader, writer) = io::pipe().context("cannot create a pipe")?;
+        let mut child = {
+            let mut command = self.command();
+            command
+                .stdin(Stdio::null())
+                .stdout(writer.try_clone().context("cannot create a pipe")?)
+                .stderr(writer);
+            command
+                .spawn()
+                .with_context(|| format!("cannot run {}", self.program.display()))?
+            // Dropping `command` closes gdship's copies of the write end, so the read
+            // below ends when the tool exits.
+        };
+        let copied = copy_to_log(&mut reader, &mut file, stream);
         let status = child
             .wait()
             .with_context(|| format!("cannot wait for {}", self.program.display()))?;
-        for copier in copiers {
-            copier
-                .join()
-                .expect("log copier panicked")
-                .with_context(|| format!("cannot write {}", log.display()))?;
-        }
+        copied.with_context(|| format!("cannot write {}", log.display()))?;
         Ok(status)
     }
 }
 
-fn copy_to_log(
-    mut from: impl Read + Send + 'static,
-    log: Arc<Mutex<File>>,
-    mut echo: Option<Box<dyn Write + Send>>,
-) -> std::thread::JoinHandle<io::Result<()>> {
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 8192];
-        loop {
-            let n = match from.read(&mut buf) {
-                Ok(0) => return Ok(()),
-                Ok(n) => n,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
-            };
-            log.lock()
-                .expect("log lock poisoned")
-                .write_all(&buf[..n])?;
-            if let Some(echo) = &mut echo {
-                // A closed terminal must not fail the export; the log still has it all.
-                let _ = echo.write_all(&buf[..n]).and_then(|()| echo.flush());
-            }
+fn copy_to_log(from: &mut impl Read, log: &mut File, echo: bool) -> io::Result<()> {
+    let mut buf = [0u8; 8192];
+    let mut stdout = io::stdout();
+    loop {
+        let n = match from.read(&mut buf) {
+            Ok(0) => return Ok(()),
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        log.write_all(&buf[..n])?;
+        if echo {
+            // A closed terminal must not fail the export; the log still has it all.
+            let _ = stdout.write_all(&buf[..n]).and_then(|()| stdout.flush());
         }
-    })
+    }
 }
 
 impl fmt::Display for ToolCommand {

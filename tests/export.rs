@@ -141,11 +141,11 @@ fn silent_export_failure_is_caught_and_stops_the_run() {
         "{result:?}"
     );
     assert!(
-        result.stderr.contains("export line 20 for Web"),
+        result.stderr.contains("export line 12 for Web"),
         "{result:?}"
     );
     assert!(
-        !result.stderr.contains("export line 5 for Web"),
+        !result.stderr.contains("export line 11 for Web"),
         "{result:?}"
     );
     assert!(result.stderr.contains("exiting 0 anyway"), "{result:?}");
@@ -195,7 +195,7 @@ fn verbose_streams_godot_output() {
         result.stdout.contains("export line 1 for Web"),
         "{result:?}"
     );
-    assert!(result.stderr.contains("importing on stderr"), "{result:?}");
+    assert!(result.stdout.contains("importing on stderr"), "{result:?}");
 }
 
 #[test]
