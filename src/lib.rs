@@ -6,6 +6,9 @@ compile_error!("gdship supports Unix and Windows only");
 pub mod cli;
 #[allow(dead_code, reason = "the commands start using it in a later commit")]
 mod config;
+mod configfile;
+#[allow(dead_code, reason = "the commands start using it in a later commit")]
+mod godot_project;
 #[allow(dead_code, reason = "the commands start using it in a later commit")]
 mod project;
 pub mod report;
