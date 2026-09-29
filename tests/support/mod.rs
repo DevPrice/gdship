@@ -14,7 +14,10 @@ pub(crate) fn fake_tool() -> &'static Path {
     static PATH: OnceLock<PathBuf> = OnceLock::new();
     PATH.get_or_init(|| {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let target_dir = root.join("target").join("fake-tool");
+        let target_dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .parent()
+            .unwrap()
+            .join("fake-tool");
         let status = std::process::Command::new(env!("CARGO"))
             .args(["build", "--quiet", "--package", "fake-tool", "--target-dir"])
             .arg(&target_dir)
@@ -39,7 +42,8 @@ pub(crate) struct Fixture {
 
 impl Fixture {
     pub(crate) fn new() -> Self {
-        let temp = tempfile::tempdir().unwrap();
+        // Inside the target dir, so tools can be hard-linked from the fake-tool build.
+        let temp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
         let root = temp.path().join("game");
         let bin = temp.path().join("bin");
         std::fs::create_dir_all(&root).unwrap();
@@ -68,8 +72,13 @@ impl Fixture {
             .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
     }
 
+    /// Links rather than copies: on Linux, running a file that was just written can fail
+    /// with ETXTBSY while another test thread is forking, because the child briefly
+    /// inherits the write handle.
     pub(crate) fn install_tool(&self, name: &str) {
-        std::fs::copy(fake_tool(), self.tool(name)).unwrap();
+        if std::fs::hard_link(fake_tool(), self.tool(name)).is_err() {
+            std::fs::copy(fake_tool(), self.tool(name)).unwrap();
+        }
     }
 
     pub(crate) fn remove_tool(&self, name: &str) {
