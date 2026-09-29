@@ -34,6 +34,13 @@ impl ToolCommand {
         command
     }
 
+    /// Runs with the terminal attached, for tools that talk to the user.
+    pub(crate) fn run_attached(&self) -> Result<ExitStatus> {
+        self.command()
+            .status()
+            .with_context(|| format!("cannot run {}", self.program.display()))
+    }
+
     /// Runs with stdout and stderr written to `log`, and also echoed to gdship's own
     /// streams when `stream` is set.
     pub(crate) fn run_logged(&self, log: &Path, stream: bool) -> Result<ExitStatus> {

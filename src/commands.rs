@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use anyhow::{Context, Result};
 
 use crate::UsageError;
+use crate::addons::check_addons;
 use crate::cli::ExportArgs;
 use crate::config::UserConfig;
 use crate::export::ExportPlan;
@@ -17,12 +18,18 @@ fn env(key: &str) -> Option<OsString> {
     std::env::var_os(key)
 }
 
+/// Everything resolved and checked before Godot runs.
+pub(crate) struct Prepared {
+    pub(crate) project: Project,
+    pub(crate) plan: ExportPlan,
+}
+
 /// Steps 1 to 3: finds the project, reads it, picks the channels and checks Godot.
 pub(crate) fn prepare(
     args: &ExportArgs,
     require_config: bool,
     reporter: Reporter,
-) -> Result<ExportPlan> {
+) -> Result<Prepared> {
     let cwd = std::env::current_dir().context("cannot read the current directory")?;
     let project = Project::discover(&cwd)?;
     let config = if require_config {
@@ -48,12 +55,8 @@ pub(crate) fn prepare(
     let godot = Godot::resolve(args.godot.as_deref(), &user_config, &env)?;
     godot.check_project(&info)?;
     godot.check_templates(&targets, &env)?;
-    Ok(ExportPlan::new(
-        &project,
-        info.name.as_deref(),
-        &godot,
-        &targets,
-    ))
+    let plan = ExportPlan::new(&project, info.name.as_deref(), &godot, &targets);
+    Ok(Prepared { project, plan })
 }
 
 /// Keeps the targets `--only` names, in their configured order.
@@ -78,7 +81,8 @@ fn select(targets: Vec<Target>, only: &[String]) -> Result<Vec<Target>> {
 }
 
 pub(crate) fn export(args: &ExportArgs, reporter: Reporter) -> Result<()> {
-    let plan = prepare(args, false, reporter)?;
+    let Prepared { project, plan } = prepare(args, false, reporter)?;
+    check_addons(project.root(), &env, reporter)?;
     plan.run(args.verbose, reporter)?;
     for export in &plan.exports {
         reporter.action(

@@ -3,12 +3,15 @@
 #[cfg(not(any(unix, windows)))]
 compile_error!("gdship supports Unix and Windows only");
 
+mod addons;
 pub mod cli;
 mod commands;
 mod config;
 mod configfile;
 mod exe;
 mod export;
+#[allow(dead_code, reason = "push starts using it in a later commit")]
+mod git;
 mod godot;
 mod godot_project;
 mod process;

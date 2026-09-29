@@ -242,3 +242,58 @@ fn works_from_a_subdirectory_and_honors_the_user_config() {
     assert_eq!(result.code, 0, "{result:?}");
     assert!(build(&fixture, "windows/idlefactory.exe").is_file());
 }
+
+#[test]
+fn addon_drift_stops_the_export() {
+    let mut fixture = Fixture::new();
+    fixture.write("addons.toml", "");
+    fixture.env("FAKE_GDGET_EXIT", "1");
+    let result = run(fixture.gdship().arg("export"));
+    assert_eq!(result.code, 1, "{result:?}");
+    assert!(result.stderr.contains("run `gdget sync`"), "{result:?}");
+    let root = fixture.root().display().to_string();
+    assert_eq!(
+        fixture.calls_to("gdget"),
+        [["-C", &root, "sync", "--check"]]
+    );
+    assert!(
+        fixture
+            .calls_to("godot")
+            .iter()
+            .all(|c| !c.contains(&"--import".to_owned()))
+    );
+}
+
+#[test]
+fn addons_in_sync_let_the_export_run() {
+    let fixture = Fixture::new();
+    fixture.write("addons.toml", "");
+    let result = run(fixture.gdship().args(["export", "--only", "windows"]));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert_eq!(fixture.calls_to("gdget").len(), 1);
+}
+
+#[test]
+fn missing_gdget_is_a_warning() {
+    let mut fixture = Fixture::new();
+    fixture.write("addons.toml", "");
+    fixture.remove_tool("gdget");
+    let bin = fixture.tool("godot").parent().unwrap().to_owned();
+    fixture.env("PATH", bin);
+    let result = run(fixture.gdship().args(["export", "--only", "windows"]));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert!(
+        result
+            .stderr
+            .contains("warning: addons.toml exists but gdget is not on PATH"),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn projects_without_addons_toml_skip_gdget() {
+    let fixture = Fixture::new();
+    let result = run(fixture.gdship().args(["export", "--only", "windows"]));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert!(fixture.calls_to("gdget").is_empty());
+}
