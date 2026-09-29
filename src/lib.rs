@@ -4,6 +4,10 @@
 compile_error!("gdship supports Unix and Windows only");
 
 pub mod cli;
+#[allow(dead_code, reason = "the commands start using it in a later commit")]
+mod config;
+#[allow(dead_code, reason = "the commands start using it in a later commit")]
+mod project;
 pub mod report;
 
 use std::fmt;
