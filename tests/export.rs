@@ -297,3 +297,17 @@ fn projects_without_addons_toml_skip_gdget() {
     assert_eq!(result.code, 0, "{result:?}");
     assert!(fixture.calls_to("gdget").is_empty());
 }
+
+#[test]
+fn missing_godot_is_an_error_when_nobody_can_answer() {
+    let mut fixture = Fixture::new();
+    fixture.remove_tool("godot");
+    let bin = fixture.tool("godot").parent().unwrap().to_owned();
+    fixture.env("GDSHIP_GODOT", "");
+    fixture.env("PATH", bin);
+    let result = run(fixture.gdship().arg("export").write_stdin("/some/godot\n"));
+    assert_eq!(result.code, 1, "{result:?}");
+    assert!(result.stderr.contains("cannot find Godot"), "{result:?}");
+    assert!(!result.stderr.contains("Path to Godot"), "{result:?}");
+    assert!(!fixture.temp.path().join("config.toml").exists());
+}

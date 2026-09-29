@@ -136,6 +136,56 @@ impl UserConfig {
             None => Ok(Self::default()),
         }
     }
+
+    /// Records `godot` in the user config at `path`, keeping whatever the file already
+    /// holds. Callers only do this when the file sets no `godot` yet.
+    pub(crate) fn save_godot(path: &Path, godot: &Path) -> Result<()> {
+        let mut text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        let value = godot
+            .to_str()
+            .ok_or_else(|| anyhow!("{} is not valid UTF-8", godot.display()))?;
+        text.push_str(&format!("godot = {}\n", toml_string(value)));
+        let saved =
+            Self::parse(&text).with_context(|| format!("cannot update {}", path.display()))?;
+        if saved.godot.as_deref() != Some(godot) {
+            bail!(
+                "cannot update {}: it would not read back as {}",
+                path.display(),
+                godot.display()
+            );
+        }
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("cannot create {}", dir.display()))?;
+        }
+        std::fs::write(path, text).with_context(|| format!("cannot write {}", path.display()))
+    }
+}
+
+/// A TOML string for `value`: a literal string when it can be one, so Windows paths keep
+/// their backslashes readable, otherwise an escaped basic string.
+fn toml_string(value: &str) -> String {
+    if !value.contains('\'') && !value.chars().any(char::is_control) {
+        return format!("'{value}'");
+    }
+    let mut quoted = String::from("\"");
+    for c in value.chars() {
+        match c {
+            '"' => quoted.push_str("\\\""),
+            '\\' => quoted.push_str("\\\\"),
+            c if c.is_control() => quoted.push_str(&format!("\\u{:04X}", c as u32)),
+            c => quoted.push(c),
+        }
+    }
+    quoted.push('"');
+    quoted
 }
 
 /// Where the user config lives, or `None` when the environment names no candidate.
@@ -303,6 +353,26 @@ mod tests {
         let err = error(UserConfig::parse("butler = \"/bin/butler\""));
         assert!(err.contains("unknown field `butler`"), "{err}");
         assert!(err.contains("newer version of gdship"), "{err}");
+    }
+
+    #[test]
+    fn saving_godot_creates_or_extends_the_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("gdship").join("config.toml");
+        let godot = PathBuf::from(r"C:\Apps\Godot 4.7\Godot_v4.7.2-stable_win64_console.exe");
+        UserConfig::save_godot(&path, &godot).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "godot = 'C:\\Apps\\Godot 4.7\\Godot_v4.7.2-stable_win64_console.exe'\n"
+        );
+        assert_eq!(UserConfig::load(&path).unwrap().godot, Some(godot));
+
+        std::fs::write(&path, "# my settings").unwrap();
+        let odd = PathBuf::from("/opt/it's \"godot\"\\bin");
+        UserConfig::save_godot(&path, &odd).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.starts_with("# my settings\ngodot = \""), "{text}");
+        assert_eq!(UserConfig::load(&path).unwrap().godot, Some(odd));
     }
 
     #[test]

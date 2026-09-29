@@ -6,15 +6,16 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::addons::check_addons;
 use crate::butler::find_butler;
 use crate::cli::ExportArgs;
-use crate::config::{Channel, ItchTarget, ProjectConfig, UserConfig};
+use crate::config::{Channel, ItchTarget, ProjectConfig, UserConfig, user_config_path};
 use crate::export::ExportPlan;
 use crate::git::{Git, VersionSource, resolve_version};
-use crate::godot::Godot;
+use crate::godot::{Godot, NOT_FOUND};
 use crate::godot_project::{
     EXPORT_PRESETS_FILE, ProjectInfo, Target, load_presets, resolve_targets,
 };
 use crate::process::{ToolCommand, describe_exit};
 use crate::project::{GODOT_PROJECT_FILE, Project};
+use crate::prompt;
 use crate::report::Reporter;
 use crate::{Outcome, UsageError};
 
@@ -68,7 +69,7 @@ fn prepare(args: &ExportArgs, require_config: bool, reporter: Reporter) -> Resul
         &args.only,
     )?;
     let user_config = UserConfig::from_env()?;
-    let godot = Godot::resolve(args.godot.as_deref(), &user_config, &env)?;
+    let godot = find_godot(args.godot.as_deref(), &user_config)?;
     godot.check_project(&info)?;
     godot.check_templates(&targets, &env)?;
     let plan = ExportPlan::new(&project, info.name.as_deref(), &godot, &targets);
@@ -77,6 +78,19 @@ fn prepare(args: &ExportArgs, require_config: bool, reporter: Reporter) -> Resul
         config,
         plan,
     })
+}
+
+/// Finds Godot, asking for it on a terminal when nothing names one.
+fn find_godot(flag: Option<&Path>, user_config: &UserConfig) -> Result<Godot> {
+    match Godot::find(flag, user_config, &env)? {
+        Some(path) => Godot::at(&path),
+        None if prompt::is_interactive() => prompt::ask_for_godot(
+            &mut std::io::stdin().lock(),
+            &mut std::io::stderr(),
+            user_config_path(env).as_deref(),
+        ),
+        None => bail!("{NOT_FOUND}"),
+    }
 }
 
 /// Keeps the targets `--only` names, in their configured order.

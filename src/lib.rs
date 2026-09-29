@@ -19,6 +19,7 @@ mod godot;
 mod godot_project;
 mod process;
 mod project;
+mod prompt;
 pub mod report;
 
 use std::fmt;

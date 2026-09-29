@@ -89,15 +89,22 @@ pub(crate) struct Godot {
 }
 
 impl Godot {
-    /// Finds Godot and asks it for its version.
-    pub(crate) fn resolve(
+    /// Finds the configured Godot binary; `None` when nothing names one.
+    pub(crate) fn find(
         flag: Option<&Path>,
         user_config: &UserConfig,
         env: &dyn Fn(&str) -> Option<OsString>,
-    ) -> Result<Self> {
-        let path = find_godot(flag, user_config, env)?;
-        let version = query_version(&path)?;
-        Ok(Self { path, version })
+    ) -> Result<Option<PathBuf>> {
+        find_godot(flag, user_config, env)
+    }
+
+    /// Asks the binary at `path` for its version.
+    pub(crate) fn at(path: &Path) -> Result<Self> {
+        let version = query_version(path)?;
+        Ok(Self {
+            path: path.to_owned(),
+            version,
+        })
     }
 
     /// Checks that this Godot is the version the project was made with.
@@ -140,11 +147,14 @@ impl Godot {
     }
 }
 
+pub(crate) const NOT_FOUND: &str = "cannot find Godot: pass --godot, set GDSHIP_GODOT, set \
+     `godot` in the user config, or put godot on PATH";
+
 fn find_godot(
     flag: Option<&Path>,
     user_config: &UserConfig,
     env: &dyn Fn(&str) -> Option<OsString>,
-) -> Result<PathBuf> {
+) -> Result<Option<PathBuf>> {
     let explicit = |path: &Path, source: &str| -> Result<PathBuf> {
         if path.is_file() {
             Ok(path.to_owned())
@@ -156,22 +166,15 @@ fn find_godot(
         }
     };
     if let Some(path) = flag {
-        return explicit(path, "--godot");
+        return explicit(path, "--godot").map(Some);
     }
     if let Some(path) = env("GDSHIP_GODOT").filter(|v| !v.is_empty()) {
-        return explicit(Path::new(&path), "GDSHIP_GODOT");
+        return explicit(Path::new(&path), "GDSHIP_GODOT").map(Some);
     }
     if let Some(path) = &user_config.godot {
-        return explicit(path, "the user config");
+        return explicit(path, "the user config").map(Some);
     }
-    find_on_path("godot", env)
-        .or_else(|| find_on_path("godot4", env))
-        .ok_or_else(|| {
-            anyhow!(
-                "cannot find Godot: pass --godot, set GDSHIP_GODOT, set `godot` in the user \
-                 config, or put godot on PATH"
-            )
-        })
+    Ok(find_on_path("godot", env).or_else(|| find_on_path("godot4", env)))
 }
 
 fn query_version(path: &Path) -> Result<GodotVersion> {
@@ -466,11 +469,22 @@ mod tests {
         };
         let with_env = env(vec![("GDSHIP_GODOT", from_env.clone().into())]);
 
-        assert_eq!(find_godot(Some(&flag), &config, &with_env).unwrap(), flag);
-        assert_eq!(find_godot(None, &config, &with_env).unwrap(), from_env);
-        assert_eq!(find_godot(None, &config, &|_| None).unwrap(), from_config);
-        let err = find_godot(None, &UserConfig::default(), &|_| None).unwrap_err();
-        assert!(err.to_string().contains("cannot find Godot"), "{err}");
+        assert_eq!(
+            find_godot(Some(&flag), &config, &with_env).unwrap(),
+            Some(flag)
+        );
+        assert_eq!(
+            find_godot(None, &config, &with_env).unwrap(),
+            Some(from_env)
+        );
+        assert_eq!(
+            find_godot(None, &config, &|_| None).unwrap(),
+            Some(from_config)
+        );
+        assert_eq!(
+            find_godot(None, &UserConfig::default(), &|_| None).unwrap(),
+            None
+        );
 
         let godot4 = file(&format!("godot4{}", std::env::consts::EXE_SUFFIX));
         #[cfg(unix)]
@@ -481,7 +495,7 @@ mod tests {
         let on_path = env(vec![("PATH", temp.path().into())]);
         assert_eq!(
             find_godot(None, &UserConfig::default(), &on_path).unwrap(),
-            godot4
+            Some(godot4)
         );
 
         let missing = UserConfig {

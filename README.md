@@ -100,6 +100,11 @@ gdship uses the first of these that is set:
 3.  `godot` in your user config file (below)
 4.  `godot`, then `godot4`, on `PATH`
 
+If none of these is set and gdship runs in a terminal, it asks for the path to Godot
+and saves your answer in the user config. You can paste a quoted path or, on macOS,
+give the `Godot.app` bundle. Outside a terminal, as in CI, gdship stops with an error
+instead.
+
 The Godot version must match the `major.minor` version in `project.godot`, and the
 export templates for that exact version must be installed, unless a preset sets a
 custom release template. Install templates from the Godot editor's **Editor > Manage
@@ -107,7 +112,8 @@ Export Templates** dialog.
 
 ### User config
 
-To keep machine-specific paths out of the project, create a `config.toml`:
+To keep machine-specific paths out of the project, gdship reads a `config.toml`. It
+writes the file itself when it asks for Godot, or you can create it:
 
 ```toml
 godot = "C:/Tools/Godot/Godot_v4.7.2-stable_win64_console.exe"
