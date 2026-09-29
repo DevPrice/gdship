@@ -4,12 +4,17 @@
 compile_error!("gdship supports Unix and Windows only");
 
 mod addons;
+mod archive;
+#[allow(dead_code, reason = "push starts using it in a later commit")]
+pub mod butler;
 pub mod cli;
 mod commands;
 mod config;
 mod configfile;
+pub mod digest;
 mod exe;
 mod export;
+pub mod fetch;
 #[allow(dead_code, reason = "push starts using it in a later commit")]
 mod git;
 mod godot;

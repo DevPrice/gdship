@@ -195,3 +195,85 @@ impl std::fmt::Debug for Run {
         )
     }
 }
+
+/// A local HTTP server for fixture downloads, so tests never touch the network.
+pub(crate) struct TestServer {
+    server: std::sync::Arc<tiny_http::Server>,
+    base: String,
+    routes: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<u8>>>>,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl TestServer {
+    pub(crate) fn start() -> Self {
+        use std::sync::{Arc, Mutex};
+        let server = Arc::new(tiny_http::Server::http("127.0.0.1:0").unwrap());
+        let base = format!("http://{}", server.server_addr().to_ip().unwrap());
+        let routes = Arc::new(Mutex::new(
+            std::collections::HashMap::<String, Vec<u8>>::new(),
+        ));
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let thread = {
+            let server = Arc::clone(&server);
+            let routes = Arc::clone(&routes);
+            let requests = Arc::clone(&requests);
+            std::thread::spawn(move || {
+                for request in server.incoming_requests() {
+                    let path = request.url().to_owned();
+                    requests.lock().unwrap().push(path.clone());
+                    let body = routes.lock().unwrap().get(&path).cloned();
+                    let _ = match body {
+                        Some(body) => request.respond(tiny_http::Response::from_data(body)),
+                        None => request.respond(tiny_http::Response::empty(404)),
+                    };
+                }
+            })
+        };
+        Self {
+            server,
+            base,
+            routes,
+            requests,
+            thread: Some(thread),
+        }
+    }
+
+    /// Serves `body` at `path` (e.g. "/butler.zip") and returns its full URL.
+    pub(crate) fn serve(&self, path: &str, body: impl Into<Vec<u8>>) -> String {
+        self.routes
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), body.into());
+        self.url(path)
+    }
+
+    pub(crate) fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.base)
+    }
+
+    pub(crate) fn requests(&self) -> Vec<String> {
+        self.requests.lock().unwrap().clone()
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        self.server.unblock();
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Builds a zip archive in memory from `(path, contents)` pairs.
+pub(crate) fn zip_bytes(files: &[(&str, &str)]) -> Vec<u8> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default().unix_permissions(0o755);
+    for (path, contents) in files {
+        zip.start_file(*path, options).unwrap();
+        zip.write_all(contents.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
