@@ -150,6 +150,66 @@ impl Fixture {
         .unwrap()
     }
 
+    /// Makes the project a git repository with a gdship.toml, .gdship/ ignored, one
+    /// commit, and a bare repository as origin. Git is isolated from the user's config.
+    pub(crate) fn init_git(&mut self) {
+        let global = self.temp.path().join("gitconfig");
+        std::fs::write(&global, "").unwrap();
+        for (key, value) in [
+            ("GIT_CONFIG_GLOBAL", global.into_os_string()),
+            ("GIT_CONFIG_NOSYSTEM", "1".into()),
+            ("GIT_AUTHOR_NAME", "gdship".into()),
+            ("GIT_AUTHOR_EMAIL", "gdship@example.com".into()),
+            ("GIT_COMMITTER_NAME", "gdship".into()),
+            ("GIT_COMMITTER_EMAIL", "gdship@example.com".into()),
+        ] {
+            self.env(key, value);
+        }
+        self.write(".gitignore", ".gdship/\n");
+        self.write("gdship.toml", "itch = \"devprice/idle-factory\"\n");
+        let remote = self.remote();
+        self.git(&["init", "--quiet", "-b", "main"]);
+        self.commit();
+        let status = std::process::Command::new("git")
+            .args(["init", "--quiet", "--bare"])
+            .arg(&remote)
+            .envs(self.envs.iter().map(|(k, v)| (k, v)))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        self.git(&["remote", "add", "origin", remote.to_str().unwrap()]);
+    }
+
+    pub(crate) fn remote(&self) -> PathBuf {
+        self.temp.path().join("remote.git")
+    }
+
+    pub(crate) fn commit(&self) {
+        self.git(&["add", "--all"]);
+        self.git(&["commit", "--quiet", "-m", "commit"]);
+    }
+
+    /// Runs git in the project with the isolated environment.
+    pub(crate) fn git(&self, args: &[&str]) -> String {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(&self.root)
+            .args(args)
+            .envs(self.envs.iter().map(|(k, v)| (k, v)))
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "git {args:?}: {output:?}");
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    /// Tags in the project repository.
+    pub(crate) fn tags(&self) -> Vec<String> {
+        self.git(&["tag", "--list"])
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
     pub(crate) fn gdship(&self) -> assert_cmd::Command {
         let mut cmd = assert_cmd::Command::cargo_bin("gdship").unwrap();
         cmd.current_dir(&self.root)

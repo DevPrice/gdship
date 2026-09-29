@@ -110,6 +110,20 @@ impl Git {
     pub(crate) fn describe(&self) -> Result<String> {
         self.stdout(&["describe", "--tags", "--always", "--dirty"])
     }
+
+    /// Creates an annotated tag on HEAD, with the tag name as its message.
+    pub(crate) fn create_tag(&self, tag: &str) -> Result<()> {
+        self.stdout(&["tag", "-a", tag, "-m", tag]).map(drop)
+    }
+
+    pub(crate) fn delete_tag(&self, tag: &str) -> Result<()> {
+        self.stdout(&["tag", "-d", tag]).map(drop)
+    }
+
+    pub(crate) fn push_tag(&self, tag: &str) -> Result<()> {
+        self.stdout(&["push", "origin", &format!("refs/tags/{tag}")])
+            .map(drop)
+    }
 }
 
 /// How the itch user version is chosen for `push`.

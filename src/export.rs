@@ -80,6 +80,11 @@ impl ExportPlan {
         }
     }
 
+    /// The import and every export, in the order [`Self::run`] runs them.
+    pub(crate) fn commands(&self) -> impl Iterator<Item = &ToolCommand> {
+        std::iter::once(&self.import).chain(self.exports.iter().map(|e| &e.command))
+    }
+
     /// Imports once, then exports and verifies each channel in order, stopping at the
     /// first failure.
     pub(crate) fn run(&self, verbose: bool, reporter: Reporter) -> Result<()> {

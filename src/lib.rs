@@ -5,7 +5,6 @@ compile_error!("gdship supports Unix and Windows only");
 
 mod addons;
 mod archive;
-#[allow(dead_code, reason = "push starts using it in a later commit")]
 pub mod butler;
 pub mod cli;
 mod commands;
@@ -15,7 +14,6 @@ pub mod digest;
 mod exe;
 mod export;
 pub mod fetch;
-#[allow(dead_code, reason = "push starts using it in a later commit")]
 mod git;
 mod godot;
 mod godot_project;
@@ -24,8 +22,6 @@ mod project;
 pub mod report;
 
 use std::fmt;
-
-use anyhow::bail;
 
 use crate::cli::{Cli, Command};
 use crate::report::Reporter;
@@ -43,12 +39,37 @@ impl fmt::Display for UsageError {
 
 impl std::error::Error for UsageError {}
 
+/// How a command finished when it did not hit a hard error.
+#[must_use]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Success,
+    /// The command completed but must exit non-zero, e.g. every channel was pushed but
+    /// the tag could not be. The reason was already reported.
+    Failure,
+}
+
 /// Runs one parsed command.
-pub fn run(cli: Cli, reporter: Reporter) -> anyhow::Result<()> {
+pub fn run(cli: Cli, reporter: Reporter) -> anyhow::Result<Outcome> {
     match cli.command {
         Command::Export(args) => commands::export(&args, reporter),
-        Command::Push { .. } | Command::Login | Command::Status => {
-            bail!("not implemented yet")
-        }
+        Command::Push {
+            export,
+            version,
+            tag,
+            allow_dirty,
+            dry_run,
+        } => commands::push(
+            &commands::PushOptions {
+                export: &export,
+                version: version.as_deref(),
+                tag: tag.as_deref(),
+                allow_dirty,
+                dry_run,
+            },
+            reporter,
+        ),
+        Command::Login => commands::login(reporter),
+        Command::Status => commands::status(reporter),
     }
 }

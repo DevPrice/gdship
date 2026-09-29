@@ -27,7 +27,7 @@ pub enum Command {
 
         /// Create an annotated tag on HEAD, use it as the version, and push it to origin
         /// once every channel is pushed.
-        #[arg(long, value_name = "TAG", value_parser = parse_tag)]
+        #[arg(long, value_name = "TAG", value_parser = parse_tag, conflicts_with = "allow_dirty")]
         tag: Option<String>,
 
         /// Push even with uncommitted or untracked files.
@@ -128,6 +128,8 @@ mod tests {
         assert_eq!(export.only, ["a", "b"]);
 
         let err = parse(&["push", "--version", "1", "--tag", "v1"]).unwrap_err();
+        assert_eq!(err.exit_code(), 2);
+        let err = parse(&["push", "--tag", "v1", "--allow-dirty"]).unwrap_err();
         assert_eq!(err.exit_code(), 2);
     }
 
