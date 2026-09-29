@@ -1,0 +1,29 @@
+[package]
+name = "gdship"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Export a Godot 4 project and push each build to itch.io with butler"
+license = "MIT"
+repository = "https://github.com/DevPrice/gdship"
+readme = "README.md"
+keywords = ["godot", "itch", "butler", "gamedev", "deploy"]
+categories = ["command-line-utilities", "game-development", "development-tools"]
+include = ["/src", "/README.md", "/LICENSE", "/Cargo.lock"]
+
+[dependencies]
+anstream = "1.0.0"
+anstyle = "1.0.14"
+anyhow = "1.0.104"
+clap = { version = "4.6.7", features = ["derive"] }
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+
+[lints.rust]
+unreachable_pub = "warn"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
