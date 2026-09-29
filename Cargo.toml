@@ -11,6 +11,9 @@ keywords = ["godot", "itch", "butler", "gamedev", "deploy"]
 categories = ["command-line-utilities", "game-development", "development-tools"]
 include = ["/src", "/README.md", "/LICENSE", "/Cargo.lock"]
 
+[workspace]
+members = ["tests/fake-tool"]
+
 [dependencies]
 anstream = "1.0.0"
 anstyle = "1.0.14"

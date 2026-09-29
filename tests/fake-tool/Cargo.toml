@@ -1,0 +1,8 @@
+[package]
+name = "fake-tool"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Stands in for godot, butler and gdget in gdship's integration tests"
+
+[dependencies]

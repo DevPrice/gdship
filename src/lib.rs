@@ -4,16 +4,14 @@
 compile_error!("gdship supports Unix and Windows only");
 
 pub mod cli;
-#[allow(dead_code, reason = "the commands start using it in a later commit")]
+mod commands;
 mod config;
 mod configfile;
-#[allow(dead_code, reason = "the commands start using it in a later commit")]
 mod exe;
-#[allow(dead_code, reason = "the commands start using it in a later commit")]
+mod export;
 mod godot;
-#[allow(dead_code, reason = "the commands start using it in a later commit")]
 mod godot_project;
-#[allow(dead_code, reason = "the commands start using it in a later commit")]
+mod process;
 mod project;
 pub mod report;
 
@@ -38,9 +36,10 @@ impl fmt::Display for UsageError {
 impl std::error::Error for UsageError {}
 
 /// Runs one parsed command.
-pub fn run(cli: Cli, _reporter: Reporter) -> anyhow::Result<()> {
+pub fn run(cli: Cli, reporter: Reporter) -> anyhow::Result<()> {
     match cli.command {
-        Command::Export(_) | Command::Push { .. } | Command::Login | Command::Status => {
+        Command::Export(args) => commands::export(&args, reporter),
+        Command::Push { .. } | Command::Login | Command::Status => {
             bail!("not implemented yet")
         }
     }
