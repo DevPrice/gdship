@@ -33,7 +33,7 @@ impl FromStr for ItchTarget {
                 game: game.to_owned(),
             }),
             _ => bail!(
-                "`{s}` is not an itch.io game; expected `<user>/<game>`, e.g. `devprice/idle-factory`"
+                "`{s}` is not an itch.io game; expected `<user>/<game>`, e.g. `username/my-game`"
             ),
         }
     }
@@ -284,10 +284,10 @@ mod tests {
     #[test]
     fn parses_target_and_channels_in_order() {
         let config = ProjectConfig::parse(
-            "itch = \"devprice/idle-factory\"\n\n[channels]\nwindows = \"Windows Desktop\"\nhtml5 = \"Web\"\n",
+            "itch = \"username/my-game\"\n\n[channels]\nwindows = \"Windows Desktop\"\nhtml5 = \"Web\"\n",
         )
         .unwrap();
-        assert_eq!(config.itch.to_string(), "devprice/idle-factory");
+        assert_eq!(config.itch.to_string(), "username/my-game");
         let channels: Vec<_> = config
             .channels
             .unwrap()
@@ -316,8 +316,8 @@ mod tests {
     #[test]
     fn rejects_malformed_targets() {
         for target in [
-            "devprice",
-            "devprice/",
+            "username",
+            "username/",
             "/game",
             "a/b/c",
             "dev price/g",

@@ -55,27 +55,25 @@ fn exports_everything_then_pushes_each_channel() {
         [
             "push",
             &build_dir(&fixture, "html5"),
-            "devprice/idle-factory:html5",
+            "username/my-game:html5",
             "--userversion",
             "0.3.0",
             "--if-changed",
         ]
     );
-    assert_eq!(butler[1][2], "devprice/idle-factory:windows");
-    assert_eq!(butler[2], ["status", "devprice/idle-factory:html5"]);
-    assert_eq!(butler[3], ["status", "devprice/idle-factory:windows"]);
+    assert_eq!(butler[1][2], "username/my-game:windows");
+    assert_eq!(butler[2], ["status", "username/my-game:html5"]);
+    assert_eq!(butler[3], ["status", "username/my-game:windows"]);
 
     assert!(result.stdout.contains("Pushing html5 0.3.0"), "{result:?}");
     assert!(
         result
             .stdout
-            .contains("Pushed windows 0.3.0 to devprice/idle-factory:windows"),
+            .contains("Pushed windows 0.3.0 to username/my-game:windows"),
         "{result:?}"
     );
     assert!(
-        result
-            .stdout
-            .contains("status of devprice/idle-factory:html5"),
+        result.stdout.contains("status of username/my-game:html5"),
         "{result:?}"
     );
 }
@@ -162,7 +160,7 @@ fn untagged_commits_are_versioned_by_git_describe() {
 #[test]
 fn projects_outside_git_let_itch_number_the_builds() {
     let fixture = Fixture::new();
-    fixture.write("gdship.toml", "itch = \"devprice/idle-factory\"\n");
+    fixture.write("gdship.toml", "itch = \"username/my-game\"\n");
     let result = run(fixture.gdship().arg("push"));
     assert_eq!(result.code, 0, "{result:?}");
     assert!(
@@ -179,12 +177,12 @@ fn projects_outside_git_let_itch_number_the_builds() {
         [
             "push",
             &build_dir(&fixture, "html5"),
-            "devprice/idle-factory:html5",
+            "username/my-game:html5",
             "--if-changed",
         ]
     );
     assert!(
-        result.stdout.contains("Pushed html5 to devprice"),
+        result.stdout.contains("Pushed html5 to username"),
         "{result:?}"
     );
 
@@ -325,7 +323,7 @@ fn partial_push_failure_lists_what_was_pushed() {
     let mut fixture = tagged_repo();
     fixture.write(
         "gdship.toml",
-        "itch = \"devprice/idle-factory\"\n[channels]\nhtml5 = \"Web\"\nwindows = \"Windows Desktop\"\nwin-beta = \"Windows Desktop\"\n",
+        "itch = \"username/my-game\"\n[channels]\nhtml5 = \"Web\"\nwindows = \"Windows Desktop\"\nwin-beta = \"Windows Desktop\"\n",
     );
     fixture.commit();
     fixture.git(&["tag", "-f", "-a", "v0.3.0", "-m", "v0.3.0"]);
@@ -335,7 +333,7 @@ fn partial_push_failure_lists_what_was_pushed() {
     assert!(
         result
             .stderr
-            .contains("pushing devprice/idle-factory:windows failed"),
+            .contains("pushing username/my-game:windows failed"),
         "{result:?}"
     );
     assert!(result.stderr.contains("pushed:     html5\n"), "{result:?}");
@@ -356,10 +354,7 @@ fn partial_push_failure_lists_what_was_pushed() {
         .collect();
     assert_eq!(
         pushes,
-        [
-            "devprice/idle-factory:html5",
-            "devprice/idle-factory:windows"
-        ]
+        ["username/my-game:html5", "username/my-game:windows"]
     );
 }
 
@@ -410,7 +405,7 @@ fn dry_run_runs_neither_tool() {
         "{result:?}"
     );
     assert!(
-        out.contains("devprice/idle-factory:html5 --userversion 5.0.0 --if-changed"),
+        out.contains("username/my-game:html5 --userversion 5.0.0 --if-changed"),
         "{result:?}"
     );
     assert!(
@@ -445,8 +440,8 @@ fn status_asks_butler_about_each_channel() {
     assert_eq!(
         fixture.calls_to("butler"),
         [
-            ["status", "devprice/idle-factory:html5"],
-            ["status", "devprice/idle-factory:windows"],
+            ["status", "username/my-game:html5"],
+            ["status", "username/my-game:windows"],
         ]
     );
     assert!(

@@ -175,7 +175,7 @@ impl Fixture {
             self.env(key, value);
         }
         self.write(".gitignore", ".gdship/\n");
-        self.write("gdship.toml", "itch = \"devprice/idle-factory\"\n");
+        self.write("gdship.toml", "itch = \"username/my-game\"\n");
         let remote = self.remote();
         self.git(&["init", "--quiet", "-b", "main"]);
         self.commit();

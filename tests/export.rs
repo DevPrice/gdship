@@ -74,7 +74,7 @@ fn channels_table_picks_presets_and_order() {
     let fixture = Fixture::new();
     fixture.write(
         "gdship.toml",
-        "itch = \"devprice/idle-factory\"\n[channels]\nwin = \"Windows Desktop\"\nweb-build = \"Web\"\n",
+        "itch = \"username/my-game\"\n[channels]\nwin = \"Windows Desktop\"\nweb-build = \"Web\"\n",
     );
     let result = run(fixture.gdship().arg("export"));
     assert_eq!(result.code, 0, "{result:?}");

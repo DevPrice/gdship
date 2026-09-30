@@ -35,11 +35,11 @@ cargo install gdship --locked
     ```
 
     When asked for the itch.io game, paste its address, such as
-    `https://devprice.itch.io/idle-factory`, or type `devprice/idle-factory`. gdship
+    `https://username.itch.io/my-game`, or type `username/my-game`. gdship
     writes `gdship.toml`:
 
     ```toml
-    itch = "devprice/idle-factory"
+    itch = "username/my-game"
     ```
 
 2.  If the project has a `.gitignore`, `init` also adds gdship's working folder to
@@ -84,7 +84,7 @@ table that maps each channel name to a preset name. The table then lists every c
 in the order gdship exports and pushes them:
 
 ```toml
-itch = "devprice/idle-factory"
+itch = "username/my-game"
 
 [channels]
 html5 = "Web"

@@ -8,11 +8,11 @@ fn writes_gdship_toml_from_the_answer() {
     let result = run(fixture
         .gdship()
         .arg("init")
-        .write_stdin("https://devprice.itch.io/idle-factory\n"));
+        .write_stdin("https://username.itch.io/my-game\n"));
     assert_eq!(result.code, 0, "{result:?}");
     assert_eq!(
         std::fs::read_to_string(fixture.path("gdship.toml")).unwrap(),
-        "itch = \"devprice/idle-factory\"\n"
+        "itch = \"username/my-game\"\n"
     );
     assert!(result.stderr.contains("itch.io game"), "{result:?}");
     assert!(result.stdout.contains("Created"), "{result:?}");
@@ -31,7 +31,7 @@ fn works_from_a_subdirectory() {
         .gdship()
         .current_dir(fixture.path("scenes"))
         .arg("init")
-        .write_stdin("devprice/idle-factory\n"));
+        .write_stdin("username/my-game\n"));
     assert_eq!(result.code, 0, "{result:?}");
     assert!(fixture.path("gdship.toml").is_file());
 }
@@ -43,7 +43,7 @@ fn never_overwrites_an_existing_file() {
     let result = run(fixture
         .gdship()
         .arg("init")
-        .write_stdin("devprice/idle-factory\n"));
+        .write_stdin("username/my-game\n"));
     assert_eq!(result.code, 1, "{result:?}");
     assert!(result.stderr.contains("already exists"), "{result:?}");
     assert_eq!(
@@ -55,7 +55,7 @@ fn never_overwrites_an_existing_file() {
 #[test]
 fn explains_bad_answers_and_writes_nothing() {
     let fixture = Fixture::new();
-    let result = run(fixture.gdship().arg("init").write_stdin("devprice\nnope\n"));
+    let result = run(fixture.gdship().arg("init").write_stdin("username\nnope\n"));
     assert_eq!(result.code, 1, "{result:?}");
     assert!(
         result.stderr.contains("expected `<user>/<game>`"),
@@ -71,7 +71,7 @@ fn needs_a_godot_project() {
     let result = run(fixture
         .gdship()
         .arg("init")
-        .write_stdin("devprice/idle-factory\n"));
+        .write_stdin("username/my-game\n"));
     assert_eq!(result.code, 1, "{result:?}");
     assert!(
         result.stderr.contains("no project.godot found"),
@@ -86,7 +86,7 @@ fn adds_the_state_dir_to_an_existing_gitignore() {
     let result = run(fixture
         .gdship()
         .arg("init")
-        .write_stdin("devprice/idle-factory\n"));
+        .write_stdin("username/my-game\n"));
     assert_eq!(result.code, 0, "{result:?}");
     assert_eq!(
         std::fs::read_to_string(fixture.path(".gitignore")).unwrap(),
@@ -101,7 +101,7 @@ fn leaves_gitignore_alone_when_absent_or_already_ignoring() {
     let result = run(fixture
         .gdship()
         .arg("init")
-        .write_stdin("devprice/idle-factory\n"));
+        .write_stdin("username/my-game\n"));
     assert_eq!(result.code, 0, "{result:?}");
     assert!(!fixture.path(".gitignore").exists());
 
@@ -110,7 +110,7 @@ fn leaves_gitignore_alone_when_absent_or_already_ignoring() {
     let result = run(fixture
         .gdship()
         .arg("init")
-        .write_stdin("devprice/idle-factory\n"));
+        .write_stdin("username/my-game\n"));
     assert_eq!(result.code, 0, "{result:?}");
     assert_eq!(
         std::fs::read_to_string(fixture.path(".gitignore")).unwrap(),

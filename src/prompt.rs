@@ -81,7 +81,7 @@ pub(crate) fn ask_for_itch(
     )
 }
 
-/// Accepts `devprice/idle-factory` or `https://devprice.itch.io/idle-factory`.
+/// Accepts `username/my-game` or `https://username.itch.io/my-game`.
 fn parse_itch(answer: &str) -> Result<ItchTarget> {
     let address = answer
         .strip_prefix("https://")
@@ -220,21 +220,18 @@ mod tests {
     #[test]
     fn itch_games_come_as_targets_or_addresses() {
         for answer in [
-            "devprice/idle-factory",
-            "https://devprice.itch.io/idle-factory",
-            "devprice.itch.io/idle-factory/",
-            "http://DevPrice.itch.io/idle-factory?secret=x",
+            "username/my-game",
+            "https://username.itch.io/my-game",
+            "username.itch.io/my-game/",
+            "http://Username.itch.io/my-game?secret=x",
         ] {
             let target = parse_itch(answer).unwrap_or_else(|e| panic!("{answer}: {e}"));
-            assert_eq!(
-                target.to_string().to_ascii_lowercase(),
-                "devprice/idle-factory"
-            );
+            assert_eq!(target.to_string().to_ascii_lowercase(), "username/my-game");
         }
         for answer in [
-            "devprice",
-            "https://itch.io/idle-factory",
-            "https://devprice.itch.io/",
+            "username",
+            "https://itch.io/my-game",
+            "https://username.itch.io/",
         ] {
             assert!(parse_itch(answer).is_err(), "{answer}");
         }
@@ -243,9 +240,9 @@ mod tests {
     #[test]
     fn asks_again_for_a_malformed_game() {
         let mut output = Vec::new();
-        let input = "idle-factory\ndevprice/idle-factory\n";
+        let input = "my-game\nusername/my-game\n";
         let target = ask_for_itch(&mut input.as_bytes(), &mut output).unwrap();
-        assert_eq!(target.to_string(), "devprice/idle-factory");
+        assert_eq!(target.to_string(), "username/my-game");
         let output = String::from_utf8(output).unwrap();
         assert!(output.contains("expected `<user>/<game>`"), "{output}");
     }
