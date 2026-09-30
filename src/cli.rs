@@ -13,6 +13,9 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Create gdship.toml for the project, asking which itch.io game it pushes to.
+    Init,
+
     /// Export every channel into .gdship/build/ and verify the builds.
     Export(ExportArgs),
 

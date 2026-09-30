@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::io::Write;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -335,6 +336,24 @@ fn push_failure(
         }
     }
     anyhow!(message)
+}
+
+/// Writes `gdship.toml` from the answers to its questions. The questions are read from
+/// stdin even when it isn't a terminal, so the answers can be piped in.
+pub(crate) fn init(reporter: Reporter) -> Result<Outcome> {
+    let project = discover()?;
+    let path = project.config_path();
+    if path.exists() {
+        bail!("{} already exists", path.display());
+    }
+    let itch = prompt::ask_for_itch(&mut std::io::stdin().lock(), &mut std::io::stderr())?;
+    // create_new, in case the file appeared while gdship was waiting for an answer.
+    let mut file = std::fs::File::create_new(&path)
+        .with_context(|| format!("cannot create {}", path.display()))?;
+    writeln!(file, "itch = \"{itch}\"")
+        .with_context(|| format!("cannot write {}", path.display()))?;
+    reporter.action("Created", path.display());
+    Ok(Outcome::Success)
 }
 
 pub(crate) fn login(reporter: Reporter) -> Result<Outcome> {

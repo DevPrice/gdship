@@ -27,15 +27,20 @@ cargo install gdship --locked
 
 ## Set up a project
 
-1.  In your Godot project folder (the one that contains `project.godot`), create
-    `gdship.toml` with your itch.io user name and game:
+1.  Create the game on itch.io if it doesn't exist yet; butler can't create games.
+    Then, in your Godot project folder (the one that contains `project.godot`), run:
+
+    ```sh
+    gdship init
+    ```
+
+    When asked for the itch.io game, paste its address, such as
+    `https://devprice.itch.io/idle-factory`, or type `devprice/idle-factory`. gdship
+    writes `gdship.toml`:
 
     ```toml
     itch = "devprice/idle-factory"
     ```
-
-    The game part is the last part of the game's address, as in
-    `https://devprice.itch.io/idle-factory`.
 
 2.  Add gdship's working folder to `.gitignore`:
 

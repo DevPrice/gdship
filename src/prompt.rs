@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use crate::config::UserConfig;
+use crate::config::{ItchTarget, UserConfig};
 use crate::godot::Godot;
 
 /// Wrong answers accepted before giving up.
@@ -13,6 +13,37 @@ const ATTEMPTS: usize = 3;
 /// go, must be a terminal. CI runs never are.
 pub(crate) fn is_interactive() -> bool {
     std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
+}
+
+/// Asks `question` until `check` accepts an answer, explaining each rejection. An
+/// empty answer or the end of input gives up.
+fn ask<T>(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+    question: &str,
+    mut check: impl FnMut(&str) -> Result<T, String>,
+) -> Result<T> {
+    let mut problem = None;
+    for _ in 0..ATTEMPTS {
+        if let Some(problem) = problem.take() {
+            writeln!(output, "{problem}")?;
+        }
+        write!(output, "{question}: ")?;
+        output.flush()?;
+        let mut line = String::new();
+        let read = input
+            .read_line(&mut line)
+            .context("cannot read the answer")?;
+        let answer = clean_answer(&line);
+        if read == 0 || answer.is_empty() {
+            bail!("no answer given");
+        }
+        match check(answer) {
+            Ok(value) => return Ok(value),
+            Err(err) => problem = Some(err),
+        }
+    }
+    bail!("{}", problem.expect("every attempt left a problem"))
 }
 
 /// Asks for the Godot binary until one answers `--version`, then saves it to the user
@@ -26,42 +57,43 @@ pub(crate) fn ask_for_godot(
         output,
         "gdship needs a Godot 4 binary, and none is configured."
     )?;
-    let mut problem = None;
-    for _ in 0..ATTEMPTS {
-        if let Some(problem) = problem.take() {
-            writeln!(output, "{problem}")?;
-        }
-        write!(output, "Path to Godot: ")?;
-        output.flush()?;
-        let mut line = String::new();
-        if input
-            .read_line(&mut line)
-            .context("cannot read the answer")?
-            == 0
-        {
-            bail!("no Godot path given");
-        }
-        let answer = clean_answer(&line);
-        if answer.is_empty() {
-            bail!("no Godot path given");
-        }
+    let godot = ask(input, output, "Path to Godot", |answer| {
         let path = executable_in(PathBuf::from(answer));
         if !path.is_file() {
-            problem = Some(format!("{} is not a file.", path.display()));
-            continue;
+            return Err(format!("{} is not a file.", path.display()));
         }
-        match Godot::at(&path) {
-            Ok(godot) => {
-                save(&godot.path, config_path, output)?;
-                return Ok(godot);
-            }
-            Err(err) => problem = Some(format!("{err:#}")),
-        }
-    }
-    bail!(
-        "{}",
-        problem.unwrap_or_else(|| "no usable Godot path given".to_owned())
+        Godot::at(&path).map_err(|err| format!("{err:#}"))
+    })?;
+    save(&godot.path, config_path, output)?;
+    Ok(godot)
+}
+
+/// Asks which itch.io game to push to, as `<user>/<game>` or the game's address.
+pub(crate) fn ask_for_itch(
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> Result<ItchTarget> {
+    ask(
+        input,
+        output,
+        "itch.io game, as <user>/<game> or its itch.io address",
+        |answer| parse_itch(answer).map_err(|err| format!("{err:#}")),
     )
+}
+
+/// Accepts `devprice/idle-factory` or `https://devprice.itch.io/idle-factory`.
+fn parse_itch(answer: &str) -> Result<ItchTarget> {
+    let address = answer
+        .strip_prefix("https://")
+        .or_else(|| answer.strip_prefix("http://"))
+        .unwrap_or(answer);
+    if let Some((host, path)) = address.split_once('/')
+        && let Some(user) = host.to_ascii_lowercase().strip_suffix(".itch.io")
+    {
+        let game = path.split(['/', '?', '#']).next().unwrap_or_default();
+        return format!("{user}/{game}").parse();
+    }
+    answer.parse()
 }
 
 fn save(godot: &Path, config_path: Option<&Path>, output: &mut impl Write) -> Result<()> {
@@ -139,7 +171,7 @@ mod tests {
         for input in ["", "\n", "  \n"] {
             let mut output = Vec::new();
             let err = ask_for_godot(&mut input.as_bytes(), &mut output, None).unwrap_err();
-            assert!(err.to_string().contains("no Godot path given"), "{err}");
+            assert!(err.to_string().contains("no answer given"), "{err}");
         }
     }
 
@@ -183,6 +215,39 @@ mod tests {
             output.contains(&format!("Saved it to {}", config.display())),
             "{output}"
         );
+    }
+
+    #[test]
+    fn itch_games_come_as_targets_or_addresses() {
+        for answer in [
+            "devprice/idle-factory",
+            "https://devprice.itch.io/idle-factory",
+            "devprice.itch.io/idle-factory/",
+            "http://DevPrice.itch.io/idle-factory?secret=x",
+        ] {
+            let target = parse_itch(answer).unwrap_or_else(|e| panic!("{answer}: {e}"));
+            assert_eq!(
+                target.to_string().to_ascii_lowercase(),
+                "devprice/idle-factory"
+            );
+        }
+        for answer in [
+            "devprice",
+            "https://itch.io/idle-factory",
+            "https://devprice.itch.io/",
+        ] {
+            assert!(parse_itch(answer).is_err(), "{answer}");
+        }
+    }
+
+    #[test]
+    fn asks_again_for_a_malformed_game() {
+        let mut output = Vec::new();
+        let input = "idle-factory\ndevprice/idle-factory\n";
+        let target = ask_for_itch(&mut input.as_bytes(), &mut output).unwrap();
+        assert_eq!(target.to_string(), "devprice/idle-factory");
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("expected `<user>/<game>`"), "{output}");
     }
 
     #[test]

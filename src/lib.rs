@@ -53,6 +53,7 @@ pub enum Outcome {
 /// Runs one parsed command.
 pub fn run(cli: Cli, reporter: Reporter) -> anyhow::Result<Outcome> {
     match cli.command {
+        Command::Init => commands::init(reporter),
         Command::Export(args) => commands::export(&args, reporter),
         Command::Push {
             export,
