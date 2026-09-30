@@ -7,11 +7,24 @@ use std::process::{Command, ExitStatus, Stdio};
 
 use anyhow::{Context, Result};
 
+/// Environment variables that grant access to the user's itch.io account. Godot runs
+/// project and addon code during import and export, so only butler may see them.
+const ITCH_CREDENTIALS: &[&str] = &["BUTLER_API_KEY"];
+
+/// Removes the itch.io credentials from `command`'s environment.
+pub(crate) fn hide_itch_credentials(command: &mut Command) -> &mut Command {
+    for key in ITCH_CREDENTIALS {
+        command.env_remove(key);
+    }
+    command
+}
+
 /// A command gdship runs, kept as data so `--dry-run` can print it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ToolCommand {
     pub(crate) program: PathBuf,
     pub(crate) args: Vec<OsString>,
+    itch_credentials: bool,
 }
 
 impl ToolCommand {
@@ -19,6 +32,7 @@ impl ToolCommand {
         Self {
             program: program.to_owned(),
             args: Vec::new(),
+            itch_credentials: false,
         }
     }
 
@@ -27,9 +41,18 @@ impl ToolCommand {
         self
     }
 
+    /// Passes the itch.io credentials through, which every other command runs without.
+    pub(crate) fn with_itch_credentials(mut self) -> Self {
+        self.itch_credentials = true;
+        self
+    }
+
     fn command(&self) -> Command {
         let mut command = Command::new(&self.program);
         command.args(&self.args);
+        if !self.itch_credentials {
+            hide_itch_credentials(&mut command);
+        }
         command
     }
 

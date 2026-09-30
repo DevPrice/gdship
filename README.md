@@ -220,6 +220,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GODOT_VERSION: 4.7.2
+      GDSHIP_VERSION: 0.1.0
     steps:
       - uses: actions/checkout@v7
         with:
@@ -238,9 +239,13 @@ jobs:
           echo "GDSHIP_GODOT=$RUNNER_TEMP/Godot_v${GODOT_VERSION}-stable_linux.x86_64" >> "$GITHUB_ENV"
 
       - name: Install gdship
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          curl -fsSL https://github.com/DevPrice/gdship/releases/latest/download/gdship-x86_64-unknown-linux-musl.tar.gz \
-            | tar -xz -C "$RUNNER_TEMP"
+          archive="$RUNNER_TEMP/gdship.tar.gz"
+          curl -fsSL -o "$archive" "https://github.com/DevPrice/gdship/releases/download/v${GDSHIP_VERSION}/gdship-x86_64-unknown-linux-musl.tar.gz"
+          gh attestation verify "$archive" --repo DevPrice/gdship
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
 
       - name: Push to itch.io
@@ -258,6 +263,11 @@ jobs:
 - Download tools outside the checkout, as above. Files left in it count as uncommitted
   changes, and gdship refuses to push.
 - gdship downloads butler itself.
+- `gh attestation verify` checks that the gdship archive was built by this repository's
+  release workflow. To keep an action from changing under you, pin it to a commit SHA
+  rather than a tag such as `v7`.
+- Only butler sees `BUTLER_API_KEY`: gdship removes it from the environment of Godot
+  and gdget, which run project and addon code.
 - For a Godot patch release of 0, such as 4.7, the templates folder is `4.7.stable`,
   not `4.7.0.stable`.
 - Under GitHub Actions, gdship reports warnings and errors as workflow annotations.

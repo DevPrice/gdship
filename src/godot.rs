@@ -8,6 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use crate::config::{UserConfig, home_dir};
 use crate::exe::find_on_path;
 use crate::godot_project::{ProjectInfo, Target};
+use crate::process::hide_itch_credentials;
 
 /// A Godot version as `godot --version` prints it, e.g. `4.7.2.stable.mono.official.abc1234`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -178,8 +179,7 @@ fn find_godot(
 }
 
 fn query_version(path: &Path) -> Result<GodotVersion> {
-    let output = Command::new(path)
-        .arg("--version")
+    let output = hide_itch_credentials(Command::new(path).arg("--version"))
         .output()
         .with_context(|| format!("cannot run {}", path.display()))?;
     let stdout = String::from_utf8_lossy(&output.stdout);

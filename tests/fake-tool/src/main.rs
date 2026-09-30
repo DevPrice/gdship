@@ -1,6 +1,7 @@
 //! Plays godot, butler or gdget, chosen by its file name or `FAKE_ROLE`.
 //!
-//! Every run appends its role and arguments, tab-separated, to the file in `FAKE_LOG`.
+//! Every run appends its role and arguments, tab-separated, to the file in `FAKE_LOG`,
+//! and its role and `BUTLER_API_KEY` (or `<unset>`) to the file in `FAKE_ENV_LOG`.
 //! Behavior is steered by environment variables; lists are comma-separated:
 //!
 //! - `FAKE_GODOT_VERSION`: what `godot --version` prints.
@@ -27,6 +28,15 @@ fn main() -> ExitCode {
             .open(log)
             .unwrap();
         writeln!(file, "{role}\t{}", args.join("\t")).unwrap();
+    }
+    if let Ok(log) = std::env::var("FAKE_ENV_LOG") {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log)
+            .unwrap();
+        let key = std::env::var("BUTLER_API_KEY").unwrap_or_else(|_| "<unset>".to_owned());
+        writeln!(file, "{role}\t{key}").unwrap();
     }
     match role.as_str() {
         "godot" => godot(&args),

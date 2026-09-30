@@ -208,6 +208,29 @@ fn build_dir_is_wiped_before_each_export() {
 }
 
 #[test]
+fn symlinked_state_dir_is_refused() {
+    let fixture = Fixture::new();
+    let outside = fixture.temp.path().join("outside");
+    let kept = outside.join("build").join("html5").join("keep.txt");
+    std::fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    std::fs::write(&kept, "").unwrap();
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(&outside, fixture.path(".gdship"));
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_dir(&outside, fixture.path(".gdship"));
+    if let Err(e) = linked {
+        eprintln!("skipping: cannot create a symlink: {e}");
+        return;
+    }
+
+    let result = run(fixture.gdship().arg("export"));
+    assert_eq!(result.code, 1, "{result:?}");
+    assert!(result.stderr.contains("is a symlink"), "{result:?}");
+    assert!(kept.is_file());
+    assert_eq!(fixture.calls_to("godot"), [["--version"]]);
+}
+
+#[test]
 fn skipped_presets_are_noted() {
     let fixture = Fixture::new();
     let presets = format!(

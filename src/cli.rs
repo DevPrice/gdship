@@ -25,7 +25,7 @@ pub enum Command {
         export: ExportArgs,
 
         /// itch user version to push. Skips the git tag lookup.
-        #[arg(long, value_name = "V", value_parser = parse_text, conflicts_with = "tag")]
+        #[arg(long, value_name = "V", value_parser = parse_version, conflicts_with = "tag")]
         version: Option<String>,
 
         /// Create an annotated tag on HEAD, use it as the version, and push it to origin
@@ -79,9 +79,12 @@ impl Cli {
     }
 }
 
-fn parse_text(text: &str) -> Result<String, String> {
+fn parse_version(text: &str) -> Result<String, String> {
     if text.trim().is_empty() {
         return Err("must not be empty".into());
+    }
+    if text.starts_with('-') {
+        return Err("must not start with `-`, which butler would read as an option".into());
     }
     if text.chars().any(char::is_control) {
         return Err("must not contain control characters".into());
@@ -143,5 +146,6 @@ mod tests {
         }
         assert!(parse(&["push", "--tag", "release/v1.2"]).is_ok());
         assert!(parse(&["push", "--version", "1\n2"]).is_err());
+        assert!(parse(&["push", "--version=-x"]).is_err());
     }
 }

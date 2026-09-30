@@ -81,6 +81,37 @@ fn exports_everything_then_pushes_each_channel() {
 }
 
 #[test]
+fn only_butler_sees_the_itch_api_key() {
+    let mut fixture = tagged_repo();
+    fixture.write("addons.toml", "");
+    let env_log = fixture.temp.path().join("env.log");
+    fixture.env("FAKE_ENV_LOG", &env_log);
+    fixture.env("BUTLER_API_KEY", "secret");
+    let result = run(fixture.gdship().args(["push", "--allow-dirty"]));
+    assert_eq!(result.code, 0, "{result:?}");
+
+    let log = std::fs::read_to_string(env_log).unwrap();
+    let seen: Vec<(&str, &str)> = log
+        .lines()
+        .map(|line| line.split_once('\t').unwrap())
+        .collect();
+    for role in ["godot", "gdget", "butler"] {
+        assert!(
+            seen.iter().any(|(r, _)| *r == role),
+            "{role} never ran: {log}"
+        );
+    }
+    for (role, key) in seen {
+        let expected = if role == "butler" {
+            "secret"
+        } else {
+            "<unset>"
+        };
+        assert_eq!(key, expected, "{role}: {log}");
+    }
+}
+
+#[test]
 fn dirty_tree_is_refused_before_exporting() {
     let fixture = tagged_repo();
     fixture.write("scenes/new.tscn", "");

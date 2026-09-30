@@ -2,12 +2,13 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 /// Finds executable `name` in the `PATH` that `env` returns, trying `name.exe` on
-/// Windows.
+/// Windows. Relative entries such as `.` are skipped, so a project can't supply its own
+/// tools.
 pub(crate) fn find_on_path(name: &str, env: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let path = env("PATH")?;
     let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);
     std::env::split_paths(&path)
-        .filter(|dir| !dir.as_os_str().is_empty())
+        .filter(|dir| dir.is_absolute())
         .map(|dir| dir.join(&file))
         .find(|candidate| is_executable(candidate))
 }

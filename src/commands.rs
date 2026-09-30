@@ -154,6 +154,7 @@ fn push_command(
     version: Option<&str>,
 ) -> ToolCommand {
     let command = ToolCommand::new(butler)
+        .with_itch_credentials()
         .arg("push")
         .arg(build_dir)
         .arg(target);
@@ -298,6 +299,7 @@ pub(crate) fn push(options: &PushOptions<'_>, reporter: Reporter) -> Result<Outc
     }
     for push in &pushed {
         let status = ToolCommand::new(&butler)
+            .with_itch_credentials()
             .arg("status")
             .arg(&push.target)
             .run_attached();
@@ -427,7 +429,10 @@ pub(crate) fn init(reporter: Reporter) -> Result<Outcome> {
 
 pub(crate) fn login(reporter: Reporter) -> Result<Outcome> {
     let butler = find_butler(&env, reporter)?;
-    let status = ToolCommand::new(&butler).arg("login").run_attached()?;
+    let status = ToolCommand::new(&butler)
+        .with_itch_credentials()
+        .arg("login")
+        .run_attached()?;
     if !status.success() {
         bail!("`butler login` failed with {}", describe_exit(status));
     }
@@ -443,6 +448,7 @@ pub(crate) fn status(reporter: Reporter) -> Result<Outcome> {
     for target in &targets {
         let target = butler_target(&config.itch, &target.channel);
         let status = ToolCommand::new(&butler)
+            .with_itch_credentials()
             .arg("status")
             .arg(&target)
             .run_attached()?;

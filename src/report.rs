@@ -26,6 +26,7 @@ impl Reporter {
     }
 
     pub fn action(&self, verb: &str, subject: impl Display) {
+        let subject = escape_controls(&subject.to_string());
         anstream::println!("{VERB}{verb:>VERB_WIDTH$}{VERB:#} {subject}");
     }
 
@@ -46,6 +47,21 @@ impl Reporter {
     }
 }
 
+/// Shows control characters as escapes, so text from a project, such as a preset name,
+/// can neither start a line GitHub Actions reads as a workflow command nor send the
+/// terminal escape sequences.
+fn escape_controls(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_control() {
+                c.escape_default().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
+}
+
 /// Escapes a workflow-command message so multi-line text stays one annotation.
 /// See https://github.com/actions/toolkit/blob/main/packages/core/src/command.ts
 fn escape_annotation(message: &str) -> String {
@@ -62,5 +78,14 @@ mod tests {
     #[test]
     fn annotation_escapes_percent_before_newlines() {
         assert_eq!(escape_annotation("50%\r\nnext"), "50%25%0D%0Anext");
+    }
+
+    #[test]
+    fn control_characters_are_escaped_but_other_text_is_kept() {
+        assert_eq!(
+            escape_controls("x\n::add-mask::y\r\u{1b}[31m"),
+            "x\\n::add-mask::y\\r\\u{1b}[31m"
+        );
+        assert_eq!(escape_controls("日本 \"Web\""), "日本 \"Web\"");
     }
 }

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::config::Channel;
 use crate::godot::Godot;
@@ -109,6 +109,7 @@ impl ExportPlan {
 
     /// Creates `.gdship/` with a `.gdignore`, so Godot doesn't import the builds.
     fn prepare_state_dir(&self) -> Result<()> {
+        self.refuse_symlinks()?;
         let logs = self.import_log.parent().expect("logs have a parent");
         std::fs::create_dir_all(logs)
             .with_context(|| format!("cannot create {}", logs.display()))?;
@@ -116,6 +117,31 @@ impl ExportPlan {
         if !gdignore.exists() {
             std::fs::write(&gdignore, "")
                 .with_context(|| format!("cannot create {}", gdignore.display()))?;
+        }
+        Ok(())
+    }
+
+    /// A cloned project can commit `.gdship` or a path in it as a symlink or junction,
+    /// which would make gdship delete and overwrite files outside the project.
+    fn refuse_symlinks(&self) -> Result<()> {
+        let logs = self.import_log.parent().expect("logs have a parent");
+        let paths = [
+            self.state_dir.clone(),
+            self.state_dir.join("build"),
+            self.state_dir.join(".gdignore"),
+            logs.to_owned(),
+            self.import_log.clone(),
+        ]
+        .into_iter()
+        .chain(self.exports.iter().map(|e| e.log.clone()));
+        for path in paths {
+            if std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+                bail!(
+                    "{} is a symlink; gdship deletes and overwrites files in .gdship/, so it \
+                     does not follow links there. Delete the link and run gdship again",
+                    path.display()
+                );
+            }
         }
         Ok(())
     }
