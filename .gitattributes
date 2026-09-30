@@ -1,0 +1,2 @@
+# Tests compare fixture contents byte for byte, so a CRLF checkout breaks them.
+tests/fixtures/** text eol=lf
