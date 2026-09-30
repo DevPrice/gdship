@@ -9,7 +9,7 @@ use crate::butler::find_butler;
 use crate::cli::ExportArgs;
 use crate::config::{Channel, ItchTarget, ProjectConfig, UserConfig, user_config_path};
 use crate::export::ExportPlan;
-use crate::git::{Git, VersionSource, resolve_version};
+use crate::git::{Git, HeadVersion};
 use crate::godot::{Godot, NOT_FOUND};
 use crate::godot_project::{
     EXPORT_PRESETS_FILE, ProjectInfo, Target, load_presets, resolve_targets,
@@ -147,14 +147,84 @@ fn butler_target(itch: &ItchTarget, channel: &Channel) -> String {
     format!("{itch}:{channel}")
 }
 
-fn push_command(butler: &Path, build_dir: &Path, target: &str, version: &str) -> ToolCommand {
-    ToolCommand::new(butler)
+fn push_command(
+    butler: &Path,
+    build_dir: &Path,
+    target: &str,
+    version: Option<&str>,
+) -> ToolCommand {
+    let command = ToolCommand::new(butler)
         .arg("push")
         .arg(build_dir)
-        .arg(target)
-        .arg("--userversion")
-        .arg(version)
-        .arg("--if-changed")
+        .arg(target);
+    let command = match version {
+        Some(version) => command.arg("--userversion").arg(version),
+        None => command,
+    };
+    command.arg("--if-changed")
+}
+
+/// Checks the work tree and picks the itch.io version. `None` leaves the numbering to
+/// itch.io, for projects with nothing in git to name a build after.
+fn check_tree_and_version(
+    project: &Project,
+    options: &PushOptions<'_>,
+    reporter: Reporter,
+) -> Result<(Git, Option<String>)> {
+    let git = Git::new(project.root());
+    if !git.is_repo()? {
+        if options.tag.is_some() {
+            bail!(
+                "--tag needs a git repository, and {} is not in one",
+                project.root().display()
+            );
+        }
+        let numbering = if options.version.is_some() {
+            ""
+        } else {
+            "; itch.io will number the builds, or pass --version to name them"
+        };
+        reporter.warn(format!(
+            "{} is not in a git repository, so gdship cannot check for uncommitted files \
+             or that .gdship/ is ignored{numbering}",
+            project.root().display()
+        ));
+        return Ok((git, options.version.map(str::to_owned)));
+    }
+    if !options.allow_dirty {
+        git.check_clean()?;
+    }
+    git.check_state_dir_ignored()?;
+    let version = match (options.version, options.tag) {
+        (Some(version), _) => Some(version.to_owned()),
+        (None, Some(tag)) => Some(git.new_tag_version(tag)?),
+        (None, None) => version_from_head(&git, reporter)?,
+    };
+    Ok((git, version))
+}
+
+/// `git describe` for HEAD, warning when a shallow clone may have hidden its tag.
+fn version_from_head(git: &Git, reporter: Reporter) -> Result<Option<String>> {
+    match git.head_version()? {
+        HeadVersion::Tagged(version) => Ok(Some(version)),
+        HeadVersion::Untagged(hash) => {
+            if git.is_shallow()? {
+                reporter.warn(format!(
+                    "no tag was found in this shallow clone, so the version is the commit \
+                     hash {hash}. If the commit is tagged, fetch its tags (in GitHub Actions, \
+                     set fetch-depth: 0 or fetch-tags: true on the checkout)"
+                ));
+            }
+            Ok(Some(hash))
+        }
+        HeadVersion::NoCommits => {
+            reporter.warn(
+                "the repository has no commits to name the version after; itch.io will \
+                 number the builds, or pass --version to name them",
+            );
+            Ok(None)
+        }
+    }
 }
 
 /// Exports every channel, then pushes each build, so a failed export never leaves itch
@@ -167,21 +237,13 @@ pub(crate) fn push(options: &PushOptions<'_>, reporter: Reporter) -> Result<Outc
     } = prepare(options.export, true, reporter)?;
     let itch = config.expect("push requires gdship.toml").itch;
 
-    let git = Git::new(project.root());
-    if !options.allow_dirty {
-        git.check_clean()?;
-    }
-    git.check_state_dir_ignored()?;
-    let source = match (options.version, options.tag) {
-        (Some(version), _) => VersionSource::Explicit(version),
-        (None, Some(tag)) => VersionSource::NewTag(tag),
-        (None, None) => VersionSource::Head {
-            allow_dirty: options.allow_dirty,
-        },
-    };
-    let version = resolve_version(&git, source)?;
+    let (git, version) = check_tree_and_version(&project, options, reporter)?;
     let butler = find_butler(&env, reporter)?;
     check_addons(project.root(), &env, reporter)?;
+    let shown = version
+        .as_deref()
+        .map(|v| format!(" {v}"))
+        .unwrap_or_default();
 
     let pushes: Vec<Push> = plan
         .exports
@@ -190,14 +252,14 @@ pub(crate) fn push(options: &PushOptions<'_>, reporter: Reporter) -> Result<Outc
             let target = butler_target(&itch, &export.channel);
             Push {
                 channel: export.channel.clone(),
-                command: push_command(&butler, &export.build_dir, &target, &version),
+                command: push_command(&butler, &export.build_dir, &target, version.as_deref()),
                 target,
             }
         })
         .collect();
 
     if options.dry_run {
-        dry_run(&plan, &pushes, options.tag, &version, reporter);
+        dry_run(&plan, &pushes, options.tag, version.as_deref(), reporter);
         return Ok(Outcome::Success);
     }
 
@@ -211,7 +273,7 @@ pub(crate) fn push(options: &PushOptions<'_>, reporter: Reporter) -> Result<Outc
 
     let mut pushed: Vec<&Push> = Vec::new();
     for push in &pushes {
-        reporter.action("Pushing", format!("{} {version}", push.channel));
+        reporter.action("Pushing", format!("{}{shown}", push.channel));
         let failure = match push.command.run_attached() {
             Ok(status) if status.success() => None,
             Ok(status) => Some(anyhow!("butler failed with {}", describe_exit(status))),
@@ -231,7 +293,7 @@ pub(crate) fn push(options: &PushOptions<'_>, reporter: Reporter) -> Result<Outc
     for push in &pushed {
         reporter.action(
             "Pushed",
-            format!("{} {version} to {}", push.channel, push.target),
+            format!("{}{shown} to {}", push.channel, push.target),
         );
     }
     for push in &pushed {
@@ -261,7 +323,7 @@ fn dry_run(
     plan: &ExportPlan,
     pushes: &[Push],
     tag: Option<&str>,
-    version: &str,
+    version: Option<&str>,
     reporter: Reporter,
 ) {
     if let Some(tag) = tag {
@@ -276,7 +338,11 @@ fn dry_run(
     if let Some(tag) = tag {
         reporter.action("Would run", format!("git push origin refs/tags/{tag}"));
     }
-    reporter.action("Dry run", format!("of version {version}; nothing was run"));
+    let version = match version {
+        Some(version) => format!("of version {version}"),
+        None => "with itch.io numbering the builds".to_owned(),
+    };
+    reporter.action("Dry run", format!("{version}; nothing was run"));
 }
 
 /// Deletes the tag gdship created, when nothing reached itch.io under it.

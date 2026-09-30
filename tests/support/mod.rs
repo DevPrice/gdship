@@ -231,6 +231,8 @@ impl Fixture {
             .env("HOME", self.home_dir())
             .env("PATH", self.path_var())
             .env("FAKE_LOG", self.log_path())
+            // Fixtures live under gdship's own repository; git must not find it.
+            .env("GIT_CEILING_DIRECTORIES", self.temp.path())
             .env("NO_COLOR", "1")
             .env_remove("GITHUB_ACTIONS")
             .env_remove("BUTLER_API_KEY")

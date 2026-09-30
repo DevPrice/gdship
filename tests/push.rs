@@ -104,15 +104,86 @@ fn allow_dirty_uses_git_describe() {
 }
 
 #[test]
-fn missing_tag_suggests_tag_or_version() {
+fn untagged_commits_are_versioned_by_git_describe() {
     let mut fixture = Fixture::new();
     fixture.init_git();
+    let hash = fixture
+        .git(&["rev-parse", "--short", "HEAD"])
+        .trim()
+        .to_owned();
+    let result = run(fixture.gdship().args(["push", "--only", "html5"]));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert_eq!(fixture.calls_to("butler")[0][4], hash);
+    assert!(!result.stderr.contains("warning"), "{result:?}");
+
+    fixture.git(&["tag", "-a", "v0.3.0", "-m", "v0.3.0"]);
+    fixture.write("more.gd", "");
+    fixture.commit();
+    let hash = fixture
+        .git(&["rev-parse", "--short", "HEAD"])
+        .trim()
+        .to_owned();
+    let result = run(fixture.gdship().args(["push", "--only", "html5"]));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert_eq!(fixture.calls_to("butler")[2][4], format!("0.3.0-1-g{hash}"));
+}
+
+#[test]
+fn projects_outside_git_let_itch_number_the_builds() {
+    let fixture = Fixture::new();
+    fixture.write("gdship.toml", "itch = \"devprice/idle-factory\"\n");
     let result = run(fixture.gdship().arg("push"));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert!(
+        result.stderr.contains("is not in a git repository"),
+        "{result:?}"
+    );
+    assert!(
+        result.stderr.contains("itch.io will number the builds"),
+        "{result:?}"
+    );
+    let butler = fixture.calls_to("butler");
+    assert_eq!(
+        butler[0],
+        [
+            "push",
+            &build_dir(&fixture, "html5"),
+            "devprice/idle-factory:html5",
+            "--if-changed",
+        ]
+    );
+    assert!(
+        result.stdout.contains("Pushed html5 to devprice"),
+        "{result:?}"
+    );
+
+    let result = run(fixture
+        .gdship()
+        .args(["push", "--version", "7", "--only", "html5"]));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert_eq!(fixture.calls_to("butler")[4][3..5], ["--userversion", "7"]);
+    assert!(!result.stderr.contains("number the builds"), "{result:?}");
+
+    let result = run(fixture.gdship().args(["push", "--tag", "v1.0.0"]));
     assert_eq!(result.code, 1, "{result:?}");
-    assert!(result.stderr.contains("HEAD has no tag"), "{result:?}");
-    assert!(result.stderr.contains("--tag <tag>"), "{result:?}");
-    assert!(result.stderr.contains("--version <v>"), "{result:?}");
-    assert!(exports(&fixture).is_empty());
+    assert!(
+        result.stderr.contains("--tag needs a git repository"),
+        "{result:?}"
+    );
+}
+
+#[test]
+fn repositories_without_commits_let_itch_number_the_builds() {
+    let mut fixture = Fixture::new();
+    fixture.init_git();
+    std::fs::remove_dir_all(fixture.path(".git")).unwrap();
+    fixture.git(&["init", "--quiet"]);
+    let result = run(fixture
+        .gdship()
+        .args(["push", "--allow-dirty", "--only", "html5"]));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert!(result.stderr.contains("no commits"), "{result:?}");
+    assert!(!fixture.calls_to("butler")[0].contains(&"--userversion".to_owned()));
 }
 
 #[test]

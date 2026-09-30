@@ -83,6 +83,28 @@ impl Git {
         }
     }
 
+    /// Whether the project is inside a git work tree. A missing git counts as no.
+    pub(crate) fn is_repo(&self) -> Result<bool> {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&self.root)
+            .args(["rev-parse", "--is-inside-work-tree"])
+            .output();
+        match output {
+            Ok(output) => {
+                Ok(output.status.success()
+                    && String::from_utf8_lossy(&output.stdout).trim() == "true")
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e).context("cannot run git"),
+        }
+    }
+
+    /// Whether this is a shallow clone, which may be missing the tags `describe` needs.
+    pub(crate) fn is_shallow(&self) -> Result<bool> {
+        Ok(self.stdout(&["rev-parse", "--is-shallow-repository"])? == "true")
+    }
+
     pub(crate) fn tag_exists(&self, tag: &str) -> Result<bool> {
         let output = self.output(&[
             "rev-parse",
@@ -93,22 +115,30 @@ impl Git {
         Ok(output.status.success())
     }
 
-    /// The tag pointing exactly at HEAD, if any.
-    pub(crate) fn exact_tag(&self) -> Result<Option<String>> {
-        let output = self.output(&["describe", "--tags", "--exact-match", "HEAD"])?;
-        if output.status.success() {
-            Ok(Some(
-                String::from_utf8_lossy(&output.stdout).trim().to_owned(),
-            ))
-        } else {
-            Ok(None)
+    /// Names HEAD with `git describe`, marking uncommitted changes with `-dirty`.
+    pub(crate) fn head_version(&self) -> Result<HeadVersion> {
+        let head = self.output(&["rev-parse", "--quiet", "--verify", "HEAD"])?;
+        if !head.status.success() {
+            return Ok(HeadVersion::NoCommits);
         }
+        let tagged = self.output(&["describe", "--tags", "--dirty"])?;
+        if tagged.status.success() {
+            let described = String::from_utf8_lossy(&tagged.stdout);
+            return Ok(HeadVersion::Tagged(strip_v(described.trim()).to_owned()));
+        }
+        Ok(HeadVersion::Untagged(
+            self.stdout(&["describe", "--always", "--dirty"])?,
+        ))
     }
 
-    /// `git describe --tags --always --dirty`, which names untagged and modified trees
-    /// too.
-    pub(crate) fn describe(&self) -> Result<String> {
-        self.stdout(&["describe", "--tags", "--always", "--dirty"])
+    /// The version a new tag gives, failing if the tag already exists.
+    pub(crate) fn new_tag_version(&self, tag: &str) -> Result<String> {
+        if self.tag_exists(tag)? {
+            bail!(
+                "tag {tag} already exists; pick a new one, or check it out and push without --tag"
+            );
+        }
+        Ok(strip_v(tag).to_owned())
     }
 
     /// Creates an annotated tag on HEAD, with the tag name as its message.
@@ -126,38 +156,15 @@ impl Git {
     }
 }
 
-/// How the itch user version is chosen for `push`.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum VersionSource<'a> {
-    /// `--version`: used as given.
-    Explicit(&'a str),
-    /// `--tag`: the tag gdship is about to create.
-    NewTag(&'a str),
-    /// The tag on HEAD, or with `--allow-dirty`, `git describe`.
-    Head { allow_dirty: bool },
-}
-
-/// Works out the itch user version. Tags lose a leading `v` before a digit.
-pub(crate) fn resolve_version(git: &Git, source: VersionSource<'_>) -> Result<String> {
-    match source {
-        VersionSource::Explicit(version) => Ok(version.to_owned()),
-        VersionSource::NewTag(tag) => {
-            if git.tag_exists(tag)? {
-                bail!(
-                    "tag {tag} already exists; pick a new one, or check it out and push without --tag"
-                );
-            }
-            Ok(strip_v(tag).to_owned())
-        }
-        VersionSource::Head { allow_dirty: true } => Ok(strip_v(&git.describe()?).to_owned()),
-        VersionSource::Head { allow_dirty: false } => match git.exact_tag()? {
-            Some(tag) => Ok(strip_v(&tag).to_owned()),
-            None => bail!(
-                "HEAD has no tag to use as the version; tag it and push with --tag <tag>, or \
-                 pass --version <v>"
-            ),
-        },
-    }
+/// HEAD as `git describe` names it. Tags lose a leading `v` before a digit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HeadVersion {
+    /// `0.3.0` on the tag, `0.3.0-4-gabc1234` four commits after it.
+    Tagged(String),
+    /// No tag is reachable, so just the short commit hash.
+    Untagged(String),
+    /// The repository has nothing committed to name.
+    NoCommits,
 }
 
 /// `v0.3.0` becomes `0.3.0`; `version2` and `vv1` stay as they are.
@@ -280,53 +287,95 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn version_comes_from_the_tag_on_head() {
+    fn head_version_describes_tags_and_commits() {
         let repo = Repo::new();
         let git = repo.handle();
-        let head = VersionSource::Head { allow_dirty: false };
-        let err = resolve_version(&git, head).unwrap_err().to_string();
-        assert!(err.contains("--tag") && err.contains("--version"), "{err}");
+        let hash = repo
+            .git(&["rev-parse", "--short", "HEAD"])
+            .trim()
+            .to_owned();
+        assert_eq!(
+            git.head_version().unwrap(),
+            HeadVersion::Untagged(hash.clone())
+        );
 
         repo.git(&["tag", "-a", "v0.3.0", "-m", "v0.3.0"]);
-        assert_eq!(resolve_version(&git, head).unwrap(), "0.3.0");
+        assert_eq!(
+            git.head_version().unwrap(),
+            HeadVersion::Tagged("0.3.0".into())
+        );
 
         repo.write("more.gd", "");
         repo.commit();
-        assert!(
-            resolve_version(&git, head).is_err(),
-            "the tag is no longer on HEAD"
+        let hash = repo
+            .git(&["rev-parse", "--short", "HEAD"])
+            .trim()
+            .to_owned();
+        assert_eq!(
+            git.head_version().unwrap(),
+            HeadVersion::Tagged(format!("0.3.0-1-g{hash}"))
         );
-        repo.git(&["tag", "release-7"]);
-        assert_eq!(resolve_version(&git, head).unwrap(), "release-7");
-    }
 
-    #[test]
-    fn allow_dirty_describes_the_tree() {
-        let repo = Repo::new();
-        let git = repo.handle();
-        let dirty = VersionSource::Head { allow_dirty: true };
-        let hash = repo.git(&["rev-parse", "--short", "HEAD"]);
-        assert_eq!(resolve_version(&git, dirty).unwrap(), hash.trim());
-
-        repo.git(&["tag", "-a", "v1.2.0", "-m", "v1.2.0"]);
         repo.write("project.godot", "changed");
-        assert_eq!(resolve_version(&git, dirty).unwrap(), "1.2.0-dirty");
+        assert_eq!(
+            git.head_version().unwrap(),
+            HeadVersion::Tagged(format!("0.3.0-1-g{hash}-dirty"))
+        );
     }
 
     #[test]
-    fn explicit_and_new_tag_versions() {
+    fn head_version_of_an_empty_repository() {
+        let dir = tempfile::tempdir().unwrap();
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["init", "--quiet"])
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let git = Git::new(dir.path());
+        assert!(git.is_repo().unwrap());
+        assert_eq!(git.head_version().unwrap(), HeadVersion::NoCommits);
+    }
+
+    #[test]
+    fn shallow_clones_are_detected() {
+        let repo = Repo::new();
+        repo.git(&["tag", "-a", "v1.0.0", "-m", "v1.0.0"]);
+        repo.write("more.gd", "");
+        repo.commit();
+        assert!(!repo.handle().is_shallow().unwrap());
+
+        let clone = tempfile::tempdir().unwrap();
+        let url = format!(
+            "file:///{}",
+            repo.path()
+                .display()
+                .to_string()
+                .replace('\\', "/")
+                .trim_start_matches('/')
+        );
+        let status = Command::new("git")
+            .args(["clone", "--quiet", "--depth", "1", &url])
+            .arg(clone.path().join("c"))
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let git = Git::new(&clone.path().join("c"));
+        assert!(git.is_shallow().unwrap());
+        assert!(matches!(
+            git.head_version().unwrap(),
+            HeadVersion::Untagged(_)
+        ));
+    }
+
+    #[test]
+    fn new_tags_must_not_exist() {
         let repo = Repo::new();
         let git = repo.handle();
-        assert_eq!(
-            resolve_version(&git, VersionSource::Explicit("v9")).unwrap(),
-            "v9"
-        );
-        assert_eq!(
-            resolve_version(&git, VersionSource::NewTag("v2.0.0")).unwrap(),
-            "2.0.0"
-        );
+        assert_eq!(git.new_tag_version("v2.0.0").unwrap(), "2.0.0");
         repo.git(&["tag", "v2.0.0"]);
-        let err = resolve_version(&git, VersionSource::NewTag("v2.0.0")).unwrap_err();
+        let err = git.new_tag_version("v2.0.0").unwrap_err();
         assert!(
             err.to_string().contains("tag v2.0.0 already exists"),
             "{err}"
