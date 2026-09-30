@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 use crate::config::{PROJECT_CONFIG_FILE, ProjectConfig};
 
@@ -62,6 +62,32 @@ impl Project {
     pub(crate) fn state_dir(&self) -> PathBuf {
         self.root.join(".gdship")
     }
+
+    /// Adds `/.gdship/` to the project's `.gitignore` unless a line there already
+    /// ignores it. Returns whether the file changed; a project without one is left alone.
+    pub(crate) fn ignore_state_dir(&self) -> Result<bool> {
+        let path = self.root.join(".gitignore");
+        let mut text = match std::fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        };
+        let ignored = text.lines().any(|line| {
+            matches!(
+                line.trim(),
+                ".gdship" | ".gdship/" | "/.gdship" | "/.gdship/"
+            )
+        });
+        if ignored {
+            return Ok(false);
+        }
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push('\n');
+        }
+        text.push_str("/.gdship/\n");
+        std::fs::write(&path, text).with_context(|| format!("cannot write {}", path.display()))?;
+        Ok(true)
+    }
 }
 
 #[cfg(test)]
@@ -83,6 +109,32 @@ mod tests {
             Project::discover(&outer.join("games")).unwrap().root(),
             outer
         );
+    }
+
+    #[test]
+    fn ignores_the_state_dir_once() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join(GODOT_PROJECT_FILE), "").unwrap();
+        let project = Project::discover(temp.path()).unwrap();
+        let gitignore = temp.path().join(".gitignore");
+        assert!(!project.ignore_state_dir().unwrap());
+        assert!(!gitignore.exists(), "a missing .gitignore is not created");
+
+        std::fs::write(&gitignore, ".godot/").unwrap();
+        assert!(project.ignore_state_dir().unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&gitignore).unwrap(),
+            ".godot/\n/.gdship/\n"
+        );
+        assert!(!project.ignore_state_dir().unwrap());
+
+        for existing in [".gdship", "  .gdship/  ", "/.gdship"] {
+            std::fs::write(&gitignore, format!("# build\n{existing}\n")).unwrap();
+            assert!(!project.ignore_state_dir().unwrap(), "{existing}");
+        }
+        std::fs::write(&gitignore, "").unwrap();
+        assert!(project.ignore_state_dir().unwrap());
+        assert_eq!(std::fs::read_to_string(&gitignore).unwrap(), "/.gdship/\n");
     }
 
     #[test]

@@ -353,6 +353,9 @@ pub(crate) fn init(reporter: Reporter) -> Result<Outcome> {
     writeln!(file, "itch = \"{itch}\"")
         .with_context(|| format!("cannot write {}", path.display()))?;
     reporter.action("Created", path.display());
+    if project.ignore_state_dir()? {
+        reporter.action("Updated", ".gitignore to ignore /.gdship/");
+    }
     Ok(Outcome::Success)
 }
 

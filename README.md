@@ -42,7 +42,8 @@ cargo install gdship --locked
     itch = "devprice/idle-factory"
     ```
 
-2.  Add gdship's working folder to `.gitignore`:
+2.  If the project has a `.gitignore`, `init` also adds gdship's working folder to
+    it. Otherwise, create a `.gitignore` with this line:
 
     ```gitignore
     /.gdship/

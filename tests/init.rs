@@ -78,3 +78,43 @@ fn needs_a_godot_project() {
         "{result:?}"
     );
 }
+
+#[test]
+fn adds_the_state_dir_to_an_existing_gitignore() {
+    let fixture = Fixture::new();
+    fixture.write(".gitignore", ".godot/\n");
+    let result = run(fixture
+        .gdship()
+        .arg("init")
+        .write_stdin("devprice/idle-factory\n"));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".gitignore")).unwrap(),
+        ".godot/\n/.gdship/\n"
+    );
+    assert!(result.stdout.contains("Updated .gitignore"), "{result:?}");
+}
+
+#[test]
+fn leaves_gitignore_alone_when_absent_or_already_ignoring() {
+    let fixture = Fixture::new();
+    let result = run(fixture
+        .gdship()
+        .arg("init")
+        .write_stdin("devprice/idle-factory\n"));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert!(!fixture.path(".gitignore").exists());
+
+    let fixture = Fixture::new();
+    fixture.write(".gitignore", ".gdship/\n");
+    let result = run(fixture
+        .gdship()
+        .arg("init")
+        .write_stdin("devprice/idle-factory\n"));
+    assert_eq!(result.code, 0, "{result:?}");
+    assert_eq!(
+        std::fs::read_to_string(fixture.path(".gitignore")).unwrap(),
+        ".gdship/\n"
+    );
+    assert!(!result.stdout.contains("Updated"), "{result:?}");
+}
